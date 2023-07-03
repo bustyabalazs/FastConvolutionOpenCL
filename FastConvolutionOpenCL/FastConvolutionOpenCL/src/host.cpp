@@ -57,7 +57,7 @@ int main() {
         auto start_time = clock::now();
 
         // run the convolution
-        convolution_run(c);
+        fast_convolution_run(c);
 
         total_time += (clock::now() - start_time);
         if (i % 50 == 0) {

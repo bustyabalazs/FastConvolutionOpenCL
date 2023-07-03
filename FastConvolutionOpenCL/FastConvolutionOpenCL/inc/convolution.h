@@ -38,6 +38,7 @@ struct convolution;
 extern "C" {
 struct convolution* convolution_new(struct parameters* params);
 void convolution_run(struct convolution* c);
+void fast_convolution_run(struct convolution* c);
 void convolution_result(struct convolution* c);
 void convolution_destroy(struct convolution* c);
 }
