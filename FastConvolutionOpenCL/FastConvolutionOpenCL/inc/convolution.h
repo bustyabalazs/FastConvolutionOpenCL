@@ -41,3 +41,9 @@ void convolution_run(struct convolution* c);
 void convolution_result(struct convolution* c);
 void convolution_destroy(struct convolution* c);
 }
+
+namespace Winograd{
+
+    float* matrixMultiply(const float* A, const unsigned int rowsA, const float* B, const unsigned int columsB, const unsigned int columnsA_rowsB);
+
+}
