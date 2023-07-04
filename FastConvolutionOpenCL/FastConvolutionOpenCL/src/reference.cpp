@@ -6,6 +6,7 @@ namespace Winograd
     const unsigned int m = 2;           //tap
     const unsigned int r = 3;           //filter
     const unsigned int a = m + r - 1;   //input tile size
+    const unsigned int aSquare = a * a;
 
     float G[12] = { 1, 0, 0,
                 0.5, 0.5, 0.5,
@@ -145,20 +146,11 @@ void fast_convolution_run(struct convolution* c)
 {
     struct parameters& p = *c->p;
 
-    // Determine boundaries
-    unsigned int y_start = 0;
-    unsigned int y_stop = p.IP_h - p.F_h + 1;
-    unsigned int x_start = 0;
-    unsigned int x_stop = p.IP_w - p.F_w + 1;
-
-    // PART A: Convolution for the input planes
-    //for (unsigned int y0 = y_start; y0 < y_stop; y0 = y0 + p.S_h) {
-    //    for (unsigned int x0 = x_start; x0 < x_stop; x0 = x0 + p.S_w) {
     const unsigned int K = p.F_N;   //number of filters
     const unsigned int C = p.F_d;   //channels of filters
     const unsigned int P = (p.IP_h / Winograd::m) * (p.IP_w / Winograd::m);     //number of image tiles TODO
-    float* U = new float[K * C];
-    float* V = new float[C * P];
+    float* U = new float[K * C * Winograd::aSquare];
+    float* V = new float[C * Winograd::aSquare * P ];
     float* M = new float[K * P];
 
     for (unsigned int k = 0; k < K; ++k)
@@ -171,9 +163,9 @@ void fast_convolution_run(struct convolution* c)
             u = Winograd::matrixMultiply(Winograd::G, Winograd::rowsG, &p.Fs[k * p.F_d * p.F_h * p.F_w + c * p.F_h * p.F_w], p.F_h, Winograd::columnsG);
             // u = (G * g) * Gt 
             u = Winograd::matrixMultiply(u, Winograd::rowsG, Winograd::Gt, Winograd::columnsGt, Winograd::rowsGt);
-            for (unsigned int i = 0; i < Winograd::rowsG * Winograd::columnsGt; ++i)
+            for (unsigned int i = 0; i < Winograd::aSquare; ++i)
             {
-                U[K * k + c] = u[i]; //TODO U[C * k + c] = u[i];
+                U[k * C * Winograd::aSquare + c * Winograd::aSquare + i] = u[i]; 
             }
             delete[] u;
         }
@@ -185,40 +177,43 @@ void fast_convolution_run(struct convolution* c)
         {
             float* v;
             // v = Bt * d
-            v = Winograd::matrixMultiply(Winograd::Bt, Winograd::rowsBt, &p.IPs[c * p.IP_h * p.IP_w + b], Winograd::rowsBt, Winograd::columnsBt);
+            v = Winograd::matrixMultiply(Winograd::Bt, Winograd::rowsBt, &p.IPs[c * P + b * Winograd::a], Winograd::rowsBt, Winograd::columnsBt);
             // v = (Bt * d) * B 
             v = Winograd::matrixMultiply(v, Winograd::rowsBt, Winograd::B, Winograd::columnsB, Winograd::rowsB);
-            for (unsigned int i = 0; i < Winograd::rowsBt * Winograd::columnsB; ++i)
+            for (unsigned int i = 0; i < Winograd::aSquare; ++i)
             {
-                V[C * c + b] = v[i]; //TODO
+                V[C * b * Winograd::aSquare + c * Winograd::aSquare + i] = v[i]; //TODO
             }
             delete[] v;
         }
     }
 
-    for (unsigned int e = 0; e < Winograd::a; ++e)
-    {
-        for (unsigned int v = 0; v < Winograd::a; ++v)
-        {
-            M = Winograd::matrixMultiply(U, K, V, P, C);
-        }
-    }
+    M = Winograd::matrixMultiply(U, K, V, P, C * Winograd::aSquare);
+    //for (unsigned int e = 0; e < Winograd::a; ++e)
+    //{
+    //    for (unsigned int v = 0; v < Winograd::a; ++v)
+    //    {
+    //        M = Winograd::matrixMultiply(U, K, V, P, C * Winograd::aSquare);
+    //        //M[e * Winograd::a + v] += U[e*C]*V[e];
+    //    }
+    //}
 
     for (unsigned int k = 0; k < K; ++k)
     {
         for (unsigned int b = 0; b < P; ++b)
         {
             float* m;
-            m = &M[k * K + b];
+            m = &M[k * P + b]; //m = &M[k * K + b];
             m = Winograd::matrixMultiply(Winograd::At, Winograd::rowsAt, m, Winograd::a, Winograd::columnsAt);
             float* y = Winograd::matrixMultiply(m, Winograd::rowsAt, Winograd::A, Winograd::columnsA, Winograd::rowsA);
             for (unsigned int i = 0; i < Winograd::a; ++i)
             {
-                p.OPs[k * p.OP_h * p.OP_w + b * p.OP_w + i] = y[i];
+                p.OPs[k * P + b * Winograd::a + i] = y[i];
             }
             delete[] m, y;
         }
     }
+    delete[] U, V, M;
     
 
     // PART B: Applying the nonlinear function pointwise to each output plane
@@ -273,9 +268,9 @@ float* Winograd::matrixMultiply(const float* A, const unsigned int rowsA, const 
     for (unsigned int i = 0; i < rowsA; ++i)
         for (unsigned int j = 0; j < columsB; ++j)
         {
-            result[i * rowsA + j] = 0;
+            result[i * columsB + j] = 0;
             for (unsigned int k = 0; k < columnsA_rowsB; ++k)
-                result[i * rowsA + j] += A[i * columnsA_rowsB + k] * B[k * columsB + j];
+                result[i * columsB + j] += A[i * columnsA_rowsB + k] * B[k * columsB + j];
         }
     return result;
 }
